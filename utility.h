@@ -101,9 +101,9 @@ std::string format(
 }
 
 template<typename ...Args>
-void print(Args... args)
+void print(std::ostream& out=std::cout, Args... args)
 {
-	std::cout << format(args...);
+	out << format(args...);
 }
 
 template<typename ValType, int NumRows, int NumCols>
@@ -143,7 +143,7 @@ std::ostream& operator<<(
 
 std::ostream& operator<<(std::ostream&, const calc::Quat&);
 
-std::string read_file(std::string path);
+std::string read_file(const std::string& path);
 
 // No trailling dirsep.
 std::string get_file_base_dir(const std::string& filename);

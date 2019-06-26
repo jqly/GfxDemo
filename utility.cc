@@ -24,7 +24,7 @@ std::ostream& operator<<(std::ostream& os, const calc::Quat& q)
     return os;
 }
 
-std::string read_file(std::string path)
+std::string read_file(const std::string& path)
 {
 	std::ifstream fin(path);
 

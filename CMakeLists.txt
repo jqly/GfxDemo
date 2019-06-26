@@ -22,7 +22,9 @@ add_executable (GfxDemo
     "utility.cc"
     "calc.h"
     "GfxModel.h"
-    "GfxModel.cc")
+    "GfxModel.cc"
+    "GfxShader.h"
+    "GfxShader.cc")
 
 target_link_libraries(GfxDemo glad glfw ${GLFW_LIBRARIES} tinyobjloader)
 
