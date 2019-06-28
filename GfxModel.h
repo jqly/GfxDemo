@@ -8,8 +8,10 @@
 #include <unordered_map>
 #include "calc.h"
 #include "tinyobjloader/tiny_obj_loader.h"
+#ifndef _ANDROID_
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
+#endif
 
 namespace gfx
 {
@@ -40,7 +42,7 @@ public:
 
 	Mesh(const Model& model);
 	~Mesh();
-	GLuint vao() { return vao_; }
+	GLuint vao() const { return vao_; }
 
 private:
 	GLuint vao_ = 0;
@@ -78,17 +80,21 @@ enum class ModelType {TriangleMesh, Hair};
 class Model {
 public:
 
-	ModelType model_type();
+	ModelType model_type() const;
 
+	calc::Mat4 local_transform() const;
+	void local_transform(calc::Mat4 matrix);
 	// Bind/Unbind vao and enable/disable attribs
 	void init_mesh();
 	void bind_mesh();
 	void unbind_mesh();
 
-	int num_verts();
-	int num_parts();
-	const Material& material(int part_idx);
-	void draw(int part_idx);
+	int num_verts() const;
+	int num_parts() const;
+	const Material& material(int part_idx) const;
+	void draw(int part_idx) const;
+
+	calc::Box3D bounds() const;
 
 	static Model load_from_obj_file(const std::string& inputfile, 
 		AttribCode acode = vertex_attrib::PosNormUV,
@@ -123,61 +129,18 @@ private:
 	std::vector<Part> parts_;
 
 	AttribCode acode_ = 0;
-	static constexpr GLuint primitive_restart_number_ = std::numeric_limits<GLuint>::max();
+	static constexpr GLuint primitive_restart_number_ = \
+		std::numeric_limits<GLuint>::max();
 
 	std::unique_ptr<Mesh> mesh_;
 	ModelType model_type_;
-};
 
-class TexInfo {
-public:
-	TexInfo(
-		std::string path, 
-		GLint mag_filter = GL_LINEAR, 
-		GLint min_filter = GL_LINEAR_MIPMAP_LINEAR,
-		GLsizei num_mipmaps = 0);
-
-	std::string path;
-	GLint mag_filter;
-	GLint min_filter;
-	GLsizei num_mipmaps;
+	calc::Box3D bounds_;
+	calc::Mat4 model_matrix_ = calc::diag<calc::Mat4>(1.f);
 };
 
 }
 
-template <>
-struct std::hash<gfx::TexInfo> {
-    std::size_t operator()(const gfx::TexInfo& vert) const
-    {
-		auto unsigned_hasher = std::hash<unsigned>();
-        std::size_t seed = 0xdeadbeefc01dbeaf;
-        seed = calc::hash_combine(seed, vert.path);
-        seed = calc::hash_combine(seed, vert.mag_filter);
-        seed = calc::hash_combine(seed, vert.min_filter);
-        seed = calc::hash_combine(seed, vert.num_mipmaps);
-
-        return seed;
-    }
-};
-
-namespace gfx
-{
-
-class TextureLoader {
-public:
-
-	TextureLoader() {}
-
-	GLuint load(const TexInfo& info);
-
-private:
-
-	std::vector<std::string> fmts_{".tga", ".png", ".jpg", ".bmp"};
-	std::unordered_map<TexInfo, GLuint> texs_;
-	std::unordered_map<std::string, std::string> rawimgs_;
-};
-
-}
 
 
 #endif /* GFX_MODEL_H */

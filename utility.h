@@ -101,9 +101,15 @@ std::string format(
 }
 
 template<typename ...Args>
-void print(std::ostream& out=std::cout, Args... args)
+void print(const std::string& fmt, Args... args)
 {
-	out << format(args...);
+	std::cout << format(fmt, args...);
+}
+
+template<typename ...Args>
+void print(std::ostream& out, const std::string& fmt, Args... args)
+{
+	out << format(fmt, args...);
 }
 
 template<typename ValType, int NumRows, int NumCols>

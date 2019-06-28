@@ -26,7 +26,7 @@ std::ostream& operator<<(std::ostream& os, const calc::Quat& q)
 
 std::string read_file(const std::string& path)
 {
-	std::ifstream fin(path);
+	std::ifstream fin(path, std::ios_base::binary);
 
 	assert(!fin.fail());
 

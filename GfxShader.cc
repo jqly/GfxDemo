@@ -1,7 +1,107 @@
+#include <sstream>
+#include <cassert>
 #include "GfxShader.h"
+#include "utility.h"
+#include "stb_image.h"
 
 namespace gfx
 {
+
+TexInfo::TexInfo(
+    std::string path, 
+    GLint mag_filter, 
+    GLint min_filter, 
+    GLsizei num_mipmaps)
+    : path{path}, 
+    mag_filter{mag_filter}, 
+    min_filter{min_filter},
+    num_mipmaps{num_mipmaps}
+{}
+
+bool operator==(const TexInfo& lhs, const TexInfo& rhs)
+{
+    return (lhs.path == rhs.path) 
+        && (lhs.mag_filter == rhs.mag_filter)
+        && (lhs.min_filter == rhs.min_filter)
+        && (lhs.num_mipmaps == rhs.num_mipmaps);
+}
+
+GLuint create_texture_from_memory(
+    const std::string& img, 
+    const TexInfo& info)
+{
+	int w, h, c;
+	stbi_set_flip_vertically_on_load(true);
+	unsigned char* data = stbi_load_from_memory(
+		(unsigned char*)img.data(), img.size(), &w, &h, &c, 0);
+	
+	if (data == nullptr) {
+		std::cerr << "Failed to load image.\n";
+		exit(1);
+	}
+
+	GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+	if (c == 4) {
+        glTexStorage2D(GL_TEXTURE_2D, info.num_mipmaps, GL_RGBA8, w, h);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, \
+            GL_RGBA, GL_UNSIGNED_BYTE, data);
+	} else if (c == 3) {
+        glTexStorage2D(GL_TEXTURE_2D, info.num_mipmaps, GL_RGB8, w, h);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, \
+            GL_RGB, GL_UNSIGNED_BYTE, data);
+	} else if (c == 1) {
+        glTexStorage2D(GL_TEXTURE_2D, info.num_mipmaps, GL_R8, w, h);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, \
+            GL_RED, GL_UNSIGNED_BYTE, data);
+	} else {
+		std::cerr << "Unsupported texture format(#channels not 1, 3 or 4)";
+		exit(1);
+	}
+
+    if (info.num_mipmaps > 1)
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, info.mag_filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, info.min_filter);
+
+	stbi_image_free(data);
+	return tex;
+}
+
+GLuint TextureLoader::load(const TexInfo& info)
+{
+	assert(std::find(fmts_.begin(),fmts_.end(),
+		util::get_file_extension(info.path)) != fmts_.end());
+
+	auto img_found = rawimgs_.find(info.path);
+
+	if (img_found == rawimgs_.end()) {
+		auto img = util::read_file(info.path);
+		rawimgs_.insert({info.path, img});
+		auto tex = create_texture_from_memory(img, info);
+		texs_.insert({info, tex});
+		return tex;
+	}
+
+    auto tex_found = texs_.find(info);
+
+    assert(tex_found != texs_.end());
+
+    //GLboolean stats;
+    //glAreTexturesResident(1, &tex_found->second, &stats);
+    //if (stats == 0) {
+    //    glDeleteTextures(1, &tex_found->second);
+    //    auto tex = create_texture_from_memory(
+    //        img_found->second, info);
+    //    tex_found->second = tex;
+    //}
+    return tex_found->second;
+}
 
 GLuint UniformSetter::get_uniform(GLuint program, const std::string& name)
 {
@@ -9,7 +109,7 @@ GLuint UniformSetter::get_uniform(GLuint program, const std::string& name)
     auto found = uniforms_.find(key);
     if (found == uniforms_.end()) {
         auto uniform = glGetUniformLocation(program, name.c_str());
-        uniforms_.insert({key,unifom});
+        uniforms_.insert({key,uniform});
         return uniform;
     }
     return found->second;
@@ -57,8 +157,10 @@ void UniformSetter::template set(GLuint program, const std::string& name, const 
     glUniform1ui(get_uniform(program, name), value);
 }
 
-void prettify_shader_log(const std::string & log, const std::string & shader)
+std::string prettify_shader_log(const std::string & log, const std::string & shader)
 {
+	std::ostringstream ss;
+
 	std::vector<int> line_begin_locations;
 
 	for (int i = 0; i < shader.size(); ++i) {
@@ -127,16 +229,16 @@ void prettify_shader_log(const std::string & log, const std::string & shader)
 				count = shader.size() - off;
 			else
 				count = line_begin_locations[lino + 1] - off;
-			xy::Print("----------\n");
+			util::print(ss, "----------\n");
 			while (count > 0 && shader[off + count - 1] == '\n')
 				count--;
-			xy::Print("{}\n", shader.substr(off, count));
+			util::print(ss, "{}\n", shader.substr(off, count));
 
 			int skip = 0;
 			while (skip + idx < log.size() && log[idx + skip] != '\n')
 				++skip;
-			xy::Print("{}\n", log.substr(log_line_begin, idx - log_line_begin + skip));
-			xy::Print("----------\n");
+			util::print(ss, "{}\n", log.substr(log_line_begin, idx - log_line_begin + skip));
+			util::print(ss, "----------\n");
 			state = 0;
 		}
 		break;
@@ -146,7 +248,7 @@ void prettify_shader_log(const std::string & log, const std::string & shader)
 		}
 	}
 
-	return;
+	return ss.str();
 }
 
 GLuint create_shader(GLenum type, std::string code)
@@ -175,7 +277,8 @@ GLuint create_shader(GLenum type, std::string code)
 			shader_type_name = "Compute shader";
 			break;
 		default:
-			XY_Die("Unknown shader type");
+			std::cerr << "Unknown type.\n";
+			exit(1);
 		}
 
 		glGetShaderiv(shader_handle, GL_INFO_LOG_LENGTH, &log_len);
@@ -185,8 +288,8 @@ GLuint create_shader(GLenum type, std::string code)
 			auto log = std::unique_ptr<char>(new char[log_len]);
 			glGetShaderInfoLog(shader_handle, log_len, &log_len, log.get());
 			util::print(std::cerr, "======={} compile log=======\n", shader_type_name);
-			prettify_shader_log(std::string(log.get(), log_len), code);
-			//xy::Print("{}", log.get());
+			auto pretty_log = prettify_shader_log(std::string(log.get(), log_len), code);
+			util::print(std::cerr, "{}\n", pretty_log);
 			util::print(std::cerr, "-------\n");
 		}
 		util::print(std::cerr, "{} compile error.\n", shader_type_name);
@@ -273,7 +376,7 @@ GLuint create_glsl_program(
     const std::string& filepath)
 {
 	std::string vertex_shader, geometry_shader, fragment_shader, compute_shader;
-    auto shader_include_dir = util::get_file_base_dir(filepath)
+    auto shader_include_dir = util::get_file_base_dir(filepath);
 	auto glsl = std::istringstream(util::read_file(filepath));
 	std::string line;
 
@@ -338,6 +441,14 @@ GLuint create_glsl_program(
 		;
 
 	return shader;
+}
+
+UniformSetter Shader::uniform_setter_{};
+TextureLoader Shader::texture_loader_{};
+
+GLuint Shader::load_texture(const TexInfo& info)
+{
+    return texture_loader_.load(info);
 }
 
 }

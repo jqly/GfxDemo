@@ -17,14 +17,20 @@ add_subdirectory(lib/tinyobjloader-1.0.7)
 
 # Add source to this project's executable.
 add_executable (GfxDemo
+    "GfxDemo.h"
     "GfxDemo.cc"
     "utility.h"
     "utility.cc"
     "calc.h"
+    "GfxInput.h"
+    "GfxInput.cc"
+    "GfxCamera.h"
+    "GfxCamera.cc"
     "GfxModel.h"
     "GfxModel.cc"
     "GfxShader.h"
-    "GfxShader.cc")
+    "GfxShader.cc"
+    "GfxConfig.h")
 
 target_link_libraries(GfxDemo glad glfw ${GLFW_LIBRARIES} tinyobjloader)
 

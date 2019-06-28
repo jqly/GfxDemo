@@ -7,7 +7,10 @@
 #include "calc.h"
 #include "utility.h"
 
+#ifndef _ANDROID_
 #include "glad/glad.h"
+#endif
+
 #include "stb_image.h"
 
 namespace gfx
@@ -89,15 +92,15 @@ void fit_model_placement(float* positions, int size,
             calc::begin(pos));
         geom.update(pos);
     }
-    auto center = placement.center;
-    auto scale_ = placement.size / geom.size;
+    auto center = placement.center();
+    auto scale_ = placement.size() / geom.size();
     auto scale = *std::min_element(
         calc::begin(scale_), calc::end(scale_));
     for (int v = 0; v < size/3; ++v) {
         calc::Vec3 pos;
         std::copy_n(&positions[3*v], 3, 
             calc::begin(pos));
-        pos = (pos-geom.center)*scale + center;
+        pos = (pos-geom.center())*scale + center;
         std::copy_n(calc::begin(pos), 3,
         &positions[3*v]);
     }
@@ -127,7 +130,7 @@ TinyobjModel load_tinyobj_model(const std::string& objfile,
         exit(1);
     }
 
-    if (placement.size.x > 0) {
+    if (placement.size().x > 0) {
         fit_model_placement(model.attrib.vertices.data(), 
             model.attrib.vertices.size(),placement);
     }
@@ -189,12 +192,12 @@ ModelVertex get_ModelVertex(AttribCode acode,
     }
     if (acode & vertex_attrib::Norm) {
         std::copy_n(
-            &attrib.vertices[3*idx.normal_index],
+            &attrib.normals[3*idx.normal_index],
             3, calc::begin(vert.normal));
     }
     if (acode & vertex_attrib::UV) {
         std::copy_n(
-            &attrib.vertices[2*idx.texcoord_index],
+            &attrib.texcoords[2*idx.texcoord_index],
             2, calc::begin(vert.texcoord));
     }
 	return vert;
@@ -254,11 +257,11 @@ Model Model::load_from_obj_file(const std::string& objfile,
 					break;
 				}
 
-			const auto& srcmtl = obj.materials[material_id];
-            auto& tgtmtl = part.material;
-			std::copy_n(srcmtl.ambient, 3, calc::begin(tgtmtl.ambient));
-			std::copy_n(srcmtl.diffuse, 3, calc::begin(tgtmtl.diffuse));
-			std::copy_n(srcmtl.specular, 3, calc::begin(tgtmtl.specular));
+			const auto& smtl = obj.materials[material_id];
+            auto& tmtl = part.material;
+			std::copy_n(smtl.ambient, 3, calc::begin(tmtl.ambient));
+			std::copy_n(smtl.diffuse, 3, calc::begin(tmtl.diffuse));
+			std::copy_n(smtl.specular, 3, calc::begin(tmtl.specular));
 
 #ifndef _WIN32
 			const char dirsep = '/';
@@ -266,19 +269,19 @@ Model Model::load_from_obj_file(const std::string& objfile,
 			const char dirsep = '\\';
 #endif
 
-			if (!srcmtl.ambient_texname.empty())
-				tgtmtl.ambient_texpath = mtldir + dirsep + \
-                    srcmtl.ambient_texname;
-			if (!srcmtl.diffuse_texname.empty())
-				tgtmtl.diffuse_texpath = mtldir + dirsep + \
-                    srcmtl.diffuse_texname;
-			if (!srcmtl.specular_texname.empty())
-				tgtmtl.specular_texpath = mtldir + dirsep + \
-                    srcmtl.specular_texname;
+			if (!smtl.ambient_texname.empty())
+				tmtl.ambient_texpath = mtldir + dirsep + \
+                    smtl.ambient_texname;
+			if (!smtl.diffuse_texname.empty())
+				tmtl.diffuse_texpath = mtldir + dirsep + \
+                    smtl.diffuse_texname;
+			if (!smtl.specular_texname.empty())
+				tmtl.specular_texpath = mtldir + dirsep + \
+                    smtl.specular_texname;
 
-			//util::print("ambient {},{}\n", tgtmtl.ambient,tgtmtl.ambient_texpath);
-			//util::print("diffuse {},{}\n", tgtmtl.diffuse,tgtmtl.diffuse_texpath);
-			//util::print("specular {},{}\n", tgtmtl.specular,tgtmtl.specular_texpath);
+			//util::print("ambient {},{}\n", tmtl.ambient,tmtl.ambient_texpath);
+			//util::print("diffuse {},{}\n", tmtl.diffuse,tmtl.diffuse_texpath);
+			//util::print("specular {},{}\n", tmtl.specular,tmtl.specular_texpath);
 
 		}
 
@@ -316,6 +319,8 @@ Model Model::load_from_obj_file(const std::string& objfile,
     auto& last_part = model.parts_.back();
     last_part.vcount = vcount - last_part.vstart;
     last_part.icount = icount - last_part.istart;
+
+    model.bounds_ = calc::box_from_points(model.positions_);
 
     return model;
 }
@@ -359,6 +364,14 @@ Model Model::load_from_ind_file(
     auto vcnt = 0;
     for (int p = 0; p < num_fibers; ++p) {
         auto num_pverts = ifstream_read<unsigned>(fp);
+
+        if (num_pverts == 0)
+            continue;
+        if (num_pverts == 1) {
+            ifstream_read<calc::Vec3>(fp);
+            continue;
+        }
+
         for (int pv = 0; pv < num_pverts; ++pv) {
             auto position = ifstream_read<calc::Vec3>(fp);
             model.positions_.push_back(position);
@@ -380,43 +393,74 @@ Model Model::load_from_ind_file(
     model.parts_[0].istart = 0;
     model.parts_[0].icount = num_fibers-1+num_verts;
 
-    if (placement.size.x > 0) {
+    if (placement.size().x > 0) {
         fit_model_placement((float*)model.positions_.data(), 
             model.positions_.size()*3, placement);
     }
 
+    model.bounds_ = calc::box_from_points(model.positions_);
 
-    if (acode&vertex_attrib::Tan) {
-        model.tangents_.resize(num_verts);
-        for (int p = 0; p < model.parts_.size(); ++p) {
-            auto start = model.parts_[p].vstart;
-            for (int v = 0; v < model.parts_[p].vcount; ++v) {
-                if (v == 0) {
-                    model.tangents_[start] = calc::normalize(
-                        model.positions_[start+1]-model.positions_[start]);
-                } else if (v == model.parts_[p].vcount-1) {
-                    model.tangents_[start+v] = calc::normalize(
-                        model.positions_[start+v]-model.positions_[start+v-1]);
-                } else {
-                    auto forward_tangent = calc::normalize(
-                        model.positions_[start+v+1]-model.positions_[start+v]);
-                    model.tangents_[start+v] = calc::normalize(
-                        model.tangents_[start+v-1]+forward_tangent);
-                }
-            }
+    if (acode&vertex_attrib::Tan == 0)
+        return model;
+
+    model.tangents_.resize(num_verts);
+    for (int p = 0; p < model.parts_.size(); ++p) {
+        auto start = model.parts_[p].vstart;
+        auto pvcnt = model.parts_[p].vcount;
+
+        model.tangents_[start] = calc::normalize(
+            model.positions_[start+1]-model.positions_[start]);
+
+        for (int v = 1; v < pvcnt-1; ++v) {
+            auto forward_tangent = calc::normalize(
+                model.positions_[start+v+1]-model.positions_[start+v]);
+            model.tangents_[start+v] = calc::normalize(
+                model.tangents_[start+v-1]+forward_tangent);
         }
-        assert(model.tangents_.size() == num_verts);
+
+        model.tangents_[start+pvcnt-1] = calc::normalize(
+            model.positions_[start+pvcnt-1] - 
+            model.positions_[start+pvcnt-2]);
+
     }
+    assert(model.tangents_.size() == num_verts);
 
     return model;
 }
 
-ModelType Model::model_type() { return model_type_; }
+ModelType Model::model_type() const { return model_type_; }
 
 void Model::init_mesh()
 {
     if (!mesh_)
         mesh_ = std::make_unique<Mesh>(*this);
+}
+
+calc::Mat4 Model::local_transform() const
+{
+    return model_matrix_;
+}
+
+void Model::local_transform(calc::Mat4 matrix)
+{
+    model_matrix_ = matrix;
+
+    std::vector<calc::Vec3> corners{
+        { 1, 1, 1},
+        { 1, 1,-1},
+        { 1,-1, 1},
+        { 1,-1,-1},
+        {-1, 1, 1},
+        {-1, 1,-1},
+        {-1,-1, 1},
+        {-1,-1,-1}};
+
+    for (auto& corner : corners) {
+        corner = corner*bounds_.size()*.5f + bounds_.center();
+        corner = calc::point_transform(model_matrix_, corner);
+    }
+
+    bounds_ = calc::box_from_points(corners);
 }
 
 void Model::bind_mesh()
@@ -462,22 +506,22 @@ void Model::unbind_mesh()
         glDisable(GL_PRIMITIVE_RESTART);
 }
 
-int Model::num_verts()
+int Model::num_verts() const
 {
 	return positions_.size();
 }
 
-int Model::num_parts()
+int Model::num_parts() const
 {
     return parts_.size();
 }
 
-const Material& Model::material(int part_idx)
+const Material& Model::material(int part_idx) const
 {
     return parts_[part_idx].material;
 }
 
-void Model::draw(int part_idx)
+void Model::draw(int part_idx) const
 {
     assert(!indices_.empty());
 
@@ -495,100 +539,9 @@ void Model::draw(int part_idx)
     }
 }
 
-TexInfo::TexInfo(
-    std::string path, 
-    GLint mag_filter, 
-    GLint min_filter, 
-    GLsizei num_mipmaps)
-    : path{path}, 
-    mag_filter{mag_filter}, 
-    min_filter{min_filter},
-    num_mipmaps{num_mipmaps}
-{}
-
-bool operator==(const TexInfo& lhs, const TexInfo& rhs)
+calc::Box3D Model::bounds() const 
 {
-    return (lhs.path == rhs.path) 
-        && (lhs.mag_filter == rhs.mag_filter)
-        && (lhs.min_filter == rhs.min_filter)
-        && (lhs.num_mipmaps == rhs.num_mipmaps);
-}
-
-GLuint create_texture_from_memory(
-    const std::string& img, 
-    const TexInfo& info)
-{
-	int w, h, c;
-	stbi_set_flip_vertically_on_load(true);
-	unsigned char* data = stbi_load_from_memory(
-		(unsigned char*)img.data(), img.size(), &w, &h, &c, 0);
-	
-	if (data == nullptr) {
-		std::cerr << "Failed to load image.\n";
-		exit(1);
-	}
-
-	GLuint tex;
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-
-	if (c == 4) {
-        glTexStorage2D(GL_TEXTURE_2D, info.num_mipmaps, GL_RGBA8, w, h);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, \
-            GL_RGBA, GL_UNSIGNED_BYTE, data);
-	} else if (c == 3) {
-        glTexStorage2D(GL_TEXTURE_2D, info.num_mipmaps, GL_RGB8, w, h);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, \
-            GL_RGB, GL_UNSIGNED_BYTE, data);
-	} else if (c == 1) {
-        glTexStorage2D(GL_TEXTURE_2D, info.num_mipmaps, GL_R8, w, h);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, \
-            GL_RED, GL_UNSIGNED_BYTE, data);
-	} else {
-		std::cerr << "Unsupported texture format(#channels not 1, 3 or 4)";
-		exit(1);
-	}
-
-    if (info.num_mipmaps!=0)
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, info.mag_filter);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, info.min_filter);
-
-	stbi_image_free(data);
-	return tex;
-}
-
-GLuint TextureLoader::load(const TexInfo& info)
-{
-	assert(std::find(fmts_.begin(),fmts_.end(),
-		util::get_file_extension(info.path)) == fmts_.end());
-
-	auto img_found = rawimgs_.find(info.path);
-
-	if (img_found == rawimgs_.end()) {
-		auto img = util::read_file(info.path);
-		rawimgs_.insert({info.path, img});
-		auto tex = create_texture_from_memory(img, info);
-		texs_.insert({info, tex});
-		return tex;
-	}
-
-    auto tex_found = texs_.find(info);
-
-    assert(tex_found != texs_.end());
-
-    GLboolean stats;
-    glAreTexturesResident(1, &tex_found->second, &stats);
-    if (stats == 0) {
-        glDeleteTextures(1, &tex_found->second);
-        auto tex = create_texture_from_memory(
-            img_found->second, info);
-        tex_found->second = tex;
-    }
-    return tex_found->second;
+    return bounds_;
 }
 
 }

@@ -800,7 +800,7 @@ private:
 template<typename MatType, typename ScalarType>
 typename std::enable_if<
 	is_Mat<MatType>::value, MatType>::type
-diagnal(const ScalarType& v)
+diag(const ScalarType& v)
 {
 	MatType m{};
 	static_assert(
@@ -998,6 +998,16 @@ inline Mat4 orthographic_transform(
 	return tmp;
 }
 
+inline Vec3 point_transform(
+    const calc::Mat4& transform, const Vec3 point)
+{
+    auto point_ = cast<Vec4>(point);
+    point_.w = 1.f;
+    point_ = dot(transform, point_);
+    point_ /= point_.w;
+    return cast<Vec3>(point_);
+}
+
 ////
 // Ray tracing.
 ////
@@ -1012,43 +1022,60 @@ public:
 };
 
 template<typename VecType>
+class Box;
+
+template <typename VecType>
+Box<VecType> box_from_points(const std::vector<VecType>& points);
+
+template<typename VecType>
 class Box {
 public:
-	VecType center;
-	VecType size;
 
-	VecType maximum() { return center+.5f*size; }
-	VecType minimum() { return center-.5f*size; }
+	Box() 
+		: sup_{-1}, inf_{1}
+	{}
+
+	Box(VecType center, VecType size)
+		: sup_{center+.5f*size}, inf_{center-.5f*size}
+	{}
+
+	VecType sup() { return sup_; }
+	VecType inf() { return inf_; }
+
+	VecType center() const {return (sup_+inf_)*.5f;}
+	VecType size() const {return sup_-inf_;}
 
 	void update(VecType point)
 	{
-		if (size.x < 0) {
-			*this = from_points({point});
+		if (sup_.x < inf_.x) {
+			*this = box_from_points(std::vector<VecType>{point});
 			return;
 		}
 
-		auto inf = calc::minimum(minimum(),point);
-		auto sup = calc::maximum(maximum(),point);
-		center = (inf+sup)*.5f;
-		size = sup - inf;
+		inf_ = calc::minimum(inf_,point);
+		sup_ = calc::maximum(sup_,point);
 	}
 
-	static Box<VecType> from_points(
-		const std::vector<VecType>& points)
-	{
-		if (points.size() == 0)
-			return Box<VecType>{};
-
-		VecType inf = points[0], sup = points[0];
-		for (int i = 1; i < points.size(); ++i) {
-			inf = calc::minimum(inf,points[i]);
-			sup = calc::maximum(sup,points[i]);
-		}
-		auto center = (inf+sup)*.5f;
-		auto size = sup - inf;
-		return Box<VecType>{center, size};
-	}
+private:
+	VecType sup_;
+	VecType inf_;
 };
+
+template <typename VecType>
+Box<VecType> box_from_points(const std::vector<VecType>& points)
+{
+	if (points.size() == 0)
+		return Box<VecType>{};
+
+	VecType inf = points[0], sup = points[0];
+	for (int i = 1; i < points.size(); ++i) {
+		inf = calc::minimum(inf,points[i]);
+		sup = calc::maximum(sup,points[i]);
+	}
+	auto center = (inf+sup)*.5f;
+	auto size = sup - inf;
+	return Box<VecType>{center, size};
+}
 
 using Box2D = Box<Vec2>;
 using Box3D = Box<Vec3>;
